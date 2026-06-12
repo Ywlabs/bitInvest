@@ -1,0 +1,62 @@
+---
+description: workspace-bitcoin 프로젝트 공통 규칙 및 구조
+alwaysApply: true
+---
+
+# workspace-bitcoin 공통 규칙
+
+## 프로젝트 개요
+
+- 업비트(Upbit) 연동 비트코인 트레이딩/조회 Python 프로젝트
+- 장기 목표: LangGraph 멀티 에이전트 + ATR 리스크 관리 + 자가 학습(Reflection)
+- 현재 단계: Phase 0 — 계좌 조회 및 API 연동 기반 구축
+
+## 디렉터리 구조 (현재)
+
+```
+workspace-bitcoin/
+├── config.py
+├── main.py                # 계좌 조회 CLI
+├── core/
+│   ├── pipeline.py
+│   ├── triggers/          # TriggerEngine, rules
+│   └── workers/
+├── services/
+│   ├── exchange_rate.py
+│   ├── market_store.py
+│   ├── signal_store.py    # 신호 큐 (향후 MQTT)
+│   └── onchain_client.py
+├── scripts/
+│   ├── run_analysis_watch.py
+│   ├── run_trading_consumer.py
+│   └── run_report.py
+├── tools/upbit_client.py
+├── data/                  # market.db (Git 제외)
+├── reports/               # 일일 리포트 (Git 제외)
+└── MetaData/
+```
+
+## 향후 추가 예정 (설계 기준)
+
+- `core/` — LangGraph state, agents, graph
+- `services/` — risk_manager, logging, notification
+- `scripts/` — daily_report 등 스케줄 작업
+- `db/` — PostgreSQL 모델
+- `.github/workflows/` — GitHub Actions
+
+## 작업 원칙
+
+- 범위 최소화: 요청되지 않은 파일·기능 추가 금지
+- 설계 문서 참고: `MetaData/개발설계아이디어.md`
+- 문서는 `.md`, AI Rule은 `.mdc` — 역할 구분 유지
+- README 등 마크다운 문서는 사용자 요청 시에만 생성
+
+## 응답·주석
+
+- 사용자 대화 및 코드 주석·docstring은 **한글** 사용
+- 한글 유니코드 깨짐 발생 시 반드시 수정
+
+## Git
+
+- commit / push는 사용자가 명시적으로 요청할 때만 수행
+- `.env` 및 API 키가 포함된 파일은 절대 커밋하지 않음

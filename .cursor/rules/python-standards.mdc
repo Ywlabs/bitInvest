@@ -1,0 +1,43 @@
+---
+description: Python 코딩 규칙 및 스타일
+globs: **/*.py
+alwaysApply: false
+---
+
+# Python 코딩 규칙
+
+## 환경
+
+- Python 3.11+
+- 의존성은 `requirements.txt`에만 추가
+- 설정은 `config.py`의 `Settings` / `get_settings()` 사용 (하드코딩 금지)
+
+## 스타일
+
+- `from __future__ import annotations` 사용 (신규 모듈)
+- 타입 힌트 명시, dataclass·pydantic으로 구조화
+- docstring·주석은 한글, 모듈 최상단에 한 줄 요약
+- 가독성 > 과도한 추상화 (1~2줄 헬퍼 남발 금지)
+
+## 예외 처리
+
+- 도메인별 커스텀 Exception 사용 (예: `UpbitConnectionError`)
+- API/외부 연동 실패는 명확한 한글 메시지와 함께 raise
+- 빈 `except` 블록 금지
+
+## CLI
+
+- `main.py` 또는 `scripts/`에서 `argparse` 사용
+- 종료 코드: 성공 `0`, 실패 `1`
+- 사용자 안내 메시지는 `stderr`로 출력
+
+## 예시
+
+```python
+# ✅ GOOD — 설정은 config 경유
+from config import get_settings
+settings = get_settings()
+
+# ❌ BAD — 소스에 키 하드코딩
+UPBIT_ACCESS_KEY = "6wnIWAd..."
+```

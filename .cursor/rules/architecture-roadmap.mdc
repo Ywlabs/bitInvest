@@ -1,0 +1,59 @@
+---
+description: 멀티 에이전트 아키텍처 및 개발 로드맵 (설계 참고)
+globs: "{core/**/*.py,services/**/*.py,MetaData/**}"
+alwaysApply: false
+---
+
+# 아키텍처 · 로드맵 (설계 참고)
+
+## 시스템 계층 (목표)
+
+1. **Data** — 시세, 뉴스, 온체인 수집
+2. **Analysis** — TA, FA, Sentiment 에이전트
+3. **Decision** — CEO 통합, Debater 토론
+4. **Risk** — ATR SL/TP, Kelly, Kill-switch
+5. **Execution** — 주문, 로그, 알림
+
+## LangGraph 흐름 (목표)
+
+```
+analyze → decide → risk_check → execute → log → [reflect_and_optimize]
+```
+
+## Agent Worker 파이프라인 (이벤트 기반)
+
+```
+AnalysisWorker --(조건 충족)--> trading_signals (SQLite)
+TradingWorker  --(pending만)--> trade_decisions
+ReportWorker   --(일 1회)-----> daily_reports
+```
+
+| Worker | 실행 스크립트 |
+|--------|---------------|
+| Analysis | `scripts/run_analysis_watch.py` |
+| Trading | `scripts/run_trading_consumer.py` |
+| Report | `scripts/run_report.py` |
+
+트리거 규칙: `core/triggers/rules.py` | 신호 큐: `services/signal_store.py`
+
+## 현재 vs 목표
+
+| 항목 | 현재 | 다음 단계 |
+|------|------|-----------|
+| 계좌 조회 | `UpbitClient` ✅ | — |
+| Agent Worker 3종 | ✅ 스텁 | LLM·ATR·실주문 연동 |
+| OHLCV·지표 | 미구현 | `tools/indicators.py` |
+| 리스크 | 미구현 | `services/risk_manager.py` |
+| LangGraph | 미구현 | `core/graph.py` |
+| 자동화 | 미구현 | GitHub Actions |
+
+## 구현 순서 준수
+
+- Phase 1: 데이터·지표 → Phase 2: 단일 에이전트 MVP·백테스트
+- Phase 3: 멀티 에이전트 → Phase 4: Reflection 루프
+- **Paper Trading 검증 후** 실전 주문
+
+## 기술 스택 (확정·예정)
+
+- 현재: `pyupbit`, `pydantic-settings`, `python-dotenv`
+- 예정: `langgraph`, `pandas-ta`, PostgreSQL, Chroma

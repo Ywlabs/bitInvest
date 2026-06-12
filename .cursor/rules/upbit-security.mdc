@@ -1,0 +1,40 @@
+---
+description: 업비트 API 연동 및 보안 규칙
+globs: "{config.py,main.py,tools/**/*.py,scripts/**/*.py,.github/**/*.yml}"
+alwaysApply: false
+---
+
+# 업비트 API · 보안 규칙
+
+## API 키 관리
+
+- `UPBIT_ACCESS_KEY`, `UPBIT_SECRET_KEY`는 **`.env`만** 사용
+- `config.py`, 소스, Rule, 채팅 예시에 실제 키 값 기입 금지
+- GitHub Actions 사용 시 **Secrets**에만 저장 (`${{ secrets.UPBIT_ACCESS_KEY }}`)
+
+## 거래소 연동
+
+- 업비트 호출은 `tools/upbit_client.py`의 `UpbitClient` 경유
+- `pyupbit` 직접 호출은 `UpbitClient` 내부에서만 허용
+- 마켓 티커 형식: `KRW-BTC` (기본값은 `DEFAULT_TICKER`)
+
+## 주문·실행 모드
+
+- 기본값 `DRY_RUN=true` 유지
+- 실제 매수/매도 코드 추가 시:
+  1. `settings.dry_run` 검사 필수
+  2. 사용자 명시적 확인 없이 LIVE 전환 금지
+- 업비트 API 권한 가정: **조회·주문만**, 출금 권한 없음
+
+## 리스크 (향후 구현 시)
+
+- ATR 기반 SL/TP는 LLM이 아닌 `services/risk_manager.py`에서 계산
+- Kill-switch, Veto 로직은 코드로 강제
+
+## 연결 테스트
+
+```powershell
+python main.py --test    # API 연결 확인
+python main.py           # 계좌 요약
+python main.py --raw     # 원본 잔고 JSON
+```

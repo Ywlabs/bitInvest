@@ -1,0 +1,37 @@
+---
+description: ADD_BUY 종합점수 전략 및 Worker 규칙
+globs: "{core/**/*.py,services/**/*.py,scripts/**/*.py,tools/indicators.py}"
+alwaysApply: false
+---
+
+# ADD_BUY 전략 (DCA 별도)
+
+## 전략 원칙
+
+- 업비트 DCA(4시간 4만원)는 건드리지 않음
+- **매도 없음** (`STRATEGY_SELL_ENABLED=false`)
+- 단순 고점대비 % 하락이 아니라 **종합 점수**로 ADD_BUY 판단
+- 월 한도: `MONTHLY_ADD_BUY_BUDGET_KRW`
+
+## 구조
+
+| 모듈 | 역할 |
+|------|------|
+| `tools/indicators.py` | RSI, MACD, MA200, 7d/30d 수익률 |
+| `core/strategy/scoring.py` | 종합 점수 엔진 |
+| `core/strategy/budget.py` | 월간 추가매수 예산 |
+| `core/triggers/engine.py` | 점수 → ADD_BUY 신호 |
+| `core/workers/analysis_worker.py` | 감시·점수·신호 생성 |
+| `core/workers/trading_worker.py` | ADD_BUY만 실행 |
+
+## 실행
+
+- `python scripts/show_score.py` — 점수 확인 (신호 생성 없음)
+- `python scripts/run_analysis_watch.py`
+- `python scripts/run_trading_consumer.py`
+
+## 점수 구간 → 1회 매수 금액
+
+- 5~6점: 월 한도 25%
+- 7~8점: 50%
+- 9점+: 100% (1회 상한 `ADD_BUY_MAX_PER_ORDER_KRW`)
