@@ -10,7 +10,7 @@ alwaysApply: false
 
 - `UPBIT_ACCESS_KEY`, `UPBIT_SECRET_KEY`는 **`.env`만** 사용
 - `config.py`, 소스, Rule, 채팅 예시에 실제 키 값 기입 금지
-- GitHub Actions 사용 시 **Secrets**에만 저장 (`${{ secrets.UPBIT_ACCESS_KEY }}`)
+- CI/Actions 도입 시 **Secrets**에만 저장 (현재는 로컬 `.env`만 사용)
 
 ## 거래소 연동
 

@@ -26,9 +26,11 @@ alwaysApply: false
 
 ## 실행
 
+- 스크립트는 **1회 실행 후 종료** (상시 감시 루프 없음)
 - `python scripts/show_score.py` — 점수 확인 (신호 생성 없음)
-- `python scripts/run_analysis_watch.py`
-- `python scripts/run_trading_consumer.py`
+- `python scripts/run_analysis_watch.py` — 감시 1회
+- `python scripts/run_trading_consumer.py` — pending 신호 1건 처리
+- `python scripts/run_report.py` — 일일 리포트
 
 ## 점수 구간 → 1회 매수 금액
 

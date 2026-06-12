@@ -41,11 +41,12 @@ ReportWorker   --(일 1회)-----> daily_reports
 | 항목 | 현재 | 다음 단계 |
 |------|------|-----------|
 | 계좌 조회 | `UpbitClient` ✅ | — |
-| Agent Worker 3종 | ✅ 스텁 | LLM·ATR·실주문 연동 |
-| OHLCV·지표 | 미구현 | `tools/indicators.py` |
+| Agent Worker 3종 | ✅ 동작 (DRY_RUN) | 실주문·알림 |
+| OHLCV·지표 | `tools/indicators.py` ✅ | 매크로(VIX·유가 등) |
+| 종합 점수·ADD_BUY | `scoring.py` + 신호 큐 ✅ | 가중치 튜닝 |
 | 리스크 | 미구현 | `services/risk_manager.py` |
 | LangGraph | 미구현 | `core/graph.py` |
-| 자동화 | 미구현 | GitHub Actions |
+| 자동화 | 로컬 1회 스크립트 | 작업 스케줄러 (GitHub Actions는 보류) |
 
 ## 구현 순서 준수
 
