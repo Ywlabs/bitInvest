@@ -14,6 +14,20 @@ class UpbitConnectionError(Exception):
     """업비트 API 연결 또는 인증 실패."""
 
 
+class UpbitOrderError(UpbitConnectionError):
+    """주문 요청 실패."""
+
+
+@dataclass
+class MarketBuyResult:
+    """시장가 매수 주문 결과."""
+
+    uuid: str
+    ticker: str
+    amount_krw: int
+    raw: dict[str, Any]
+
+
 @dataclass
 class AccountBalance:
     """보유 자산 한 종목."""
@@ -50,7 +64,7 @@ class AccountSummary:
 
 
 class UpbitClient:
-    """업비트 계좌 조회 및 (향후) 주문 실행 클라이언트."""
+    """업비트 계좌 조회 및 시장가 매수 클라이언트."""
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -77,11 +91,7 @@ class UpbitClient:
             UpbitConnectionError: 인증 실패 또는 API 오류
         """
         try:
-            balances = self.upbit.get_balances()
-            if balances is None:
-                raise UpbitConnectionError(
-                    "잔고 조회에 실패했습니다. API 키와 '자산 조회' 권한을 확인해 주세요."
-                )
+            self.get_raw_balances()
             return True
         except UpbitConnectionError:
             raise
@@ -93,6 +103,12 @@ class UpbitClient:
         balances = self.upbit.get_balances()
         if balances is None:
             raise UpbitConnectionError("잔고 조회 결과가 비어 있습니다.")
+        if isinstance(balances, dict):
+            if "error" in balances:
+                err = balances["error"]
+                msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                raise UpbitConnectionError(f"업비트 API 오류: {msg}")
+            raise UpbitConnectionError(f"예상치 못한 잔고 응답: {balances}")
         return balances
 
     def get_balances(self) -> list[AccountBalance]:
@@ -167,4 +183,51 @@ class UpbitClient:
             total_eval_amount=total_eval,
             total_pnl=coin_pnl,
             total_pnl_rate=coin_pnl_rate,
+        )
+
+    def buy_market_krw(self, ticker: str, amount_krw: float) -> MarketBuyResult:
+        """
+        원화 시장가 매수 (ADD_BUY).
+
+        Args:
+            ticker: 마켓 코드 (예: KRW-BTC)
+            amount_krw: 매수 금액 (원, 정수 절사)
+
+        Raises:
+            UpbitOrderError: 금액 부족·API 오류·DRY_RUN
+        """
+        if self.settings.dry_run:
+            raise UpbitOrderError("DRY_RUN=true — 실주문이 비활성화되어 있습니다.")
+
+        amount = int(amount_krw)
+        if amount < 5_000:
+            raise UpbitOrderError(f"업비트 최소 주문금액 미달 ({amount:,}원 < 5,000원)")
+
+        available = self.get_krw_balance()
+        if available < amount:
+            raise UpbitOrderError(
+                f"가용 원화 부족 (필요 {amount:,}원, 보유 {available:,.0f}원)"
+            )
+
+        try:
+            resp = self.upbit.buy_market_order(ticker, amount)
+        except Exception as exc:
+            raise UpbitOrderError(f"시장가 매수 요청 실패: {exc}") from exc
+
+        if resp is None:
+            raise UpbitOrderError("주문 응답이 없습니다.")
+
+        if isinstance(resp, dict) and "error" in resp:
+            err = resp["error"]
+            msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            raise UpbitOrderError(f"업비트 주문 거부: {msg}")
+
+        if not isinstance(resp, dict) or not resp.get("uuid"):
+            raise UpbitOrderError(f"주문 실패 (uuid 없음): {resp}")
+
+        return MarketBuyResult(
+            uuid=str(resp["uuid"]),
+            ticker=ticker,
+            amount_krw=amount,
+            raw=resp,
         )

@@ -1,6 +1,6 @@
 ---
 description: ADD_BUY 종합점수 전략 및 Worker 규칙
-globs: "{core/**/*.py,services/**/*.py,scripts/**/*.py,tools/indicators.py}"
+globs: "{core/**/*.py,services/**/*.py,scripts/**/*.py,tools/indicators/**}"
 alwaysApply: false
 ---
 
@@ -17,8 +17,10 @@ alwaysApply: false
 
 | 모듈 | 역할 |
 |------|------|
-| `tools/indicators.py` | RSI, MACD, MA200, 7d/30d 수익률 |
-| `core/strategy/scoring.py` | 종합 점수 엔진 |
+| `tools/indicators/` | TA 엔진 v2 — Wilder RSI/ATR, ADX, 구조, 다이버전스, MTF |
+| `core/strategy/factors/` | MTF·Momentum·Structure·Vol·Macro 팩터 |
+| `core/strategy/scoring.py` | 팩터 합성 종합 점수 |
+| `core/strategy/regime.py` | ATR 변동성 레짐 |
 | `core/strategy/budget.py` | 월간 추가매수 예산 |
 | `core/triggers/engine.py` | 점수 → ADD_BUY 신호 |
 | `core/workers/analysis_worker.py` | 감시·점수·신호 생성 |
@@ -32,8 +34,9 @@ alwaysApply: false
 - `python scripts/run_trading_consumer.py` — pending 신호 1건 처리
 - `python scripts/run_report.py` — 일일 리포트
 
-## 점수 구간 → 1회 매수 금액
+## 점수 구간 → 1회 매수 금액 (등급)
 
-- 5~6점: 월 한도 25%
-- 7~8점: 50%
-- 9점+: 100% (1회 상한 `ADD_BUY_MAX_PER_ORDER_KRW`)
+- 저등급: `ADD_BUY_MIN_SCORE` ~ `TIER_MID_MIN_SCORE` 미만 → `TIER_LOW_AMOUNT`
+- 중등급: `TIER_MID_MIN_SCORE` ~ `TIER_HIGH_MIN_SCORE` 미만 → `TIER_MID_AMOUNT`
+- 고등급: `TIER_HIGH_MIN_SCORE` 이상 → `TIER_HIGH_AMOUNT`
+- 월 한도 `MONTHLY_ADD_BUY_BUDGET_KRW` 잔여 이내만 집행

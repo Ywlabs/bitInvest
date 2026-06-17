@@ -27,6 +27,11 @@ class ScoreResult:
     recommend_add_buy: bool = False
     recommended_krw: float = 0.0
     confidence: float = 0.0
+    effective_min_score: float = 0.0
+    atr_size_multiplier: float = 1.0
+    add_buy_tier: str = ""
+    add_buy_tier_label: str = ""
+    add_buy_tier_multiplier: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +46,11 @@ class ScoreResult:
             "recommend_add_buy": self.recommend_add_buy,
             "recommended_krw": self.recommended_krw,
             "confidence": self.confidence,
+            "effective_min_score": self.effective_min_score,
+            "atr_size_multiplier": self.atr_size_multiplier,
+            "add_buy_tier": self.add_buy_tier,
+            "add_buy_tier_label": self.add_buy_tier_label,
+            "add_buy_tier_multiplier": self.add_buy_tier_multiplier,
         }
 
     @property

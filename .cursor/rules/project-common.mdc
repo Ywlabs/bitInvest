@@ -10,7 +10,7 @@ alwaysApply: true
 - 업비트(Upbit) 연동 BTC **종합 점수 기반 ADD_BUY** Python 프로젝트
 - 저장소: https://github.com/Ywlabs/bitInvest
 - 장기 목표: LangGraph 멀티 에이전트 + ATR 리스크 관리 + 자가 학습(Reflection)
-- 현재 단계: Phase 1 — Analysis/Trading/Report Worker, SQLite 신호 큐, 종합 점수 전략
+- 현재 단계: Phase 2-Pro — TA 엔진 v2 + 팩터 스코어링
 
 ## 디렉터리 구조 (현재)
 
@@ -33,10 +33,12 @@ bitInvest/
 │   ├── run_analysis_watch.py
 │   ├── run_trading_consumer.py
 │   ├── run_report.py
-│   └── show_score.py
+│   ├── show_score.py
+│   └── batch/             # Windows .bat
+├── logs/                  # 배치 로그 (Git 제외)
 ├── tools/
 │   ├── upbit_client.py
-│   └── indicators.py
+│   └── indicators/        # TA 엔진 v2 (ta_math, pipeline, …)
 ├── data/                  # market.db (Git 제외)
 ├── reports/               # 일일 리포트 (Git 제외)
 └── MetaData/

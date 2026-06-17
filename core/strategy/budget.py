@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from config import Settings, get_settings
+from core.strategy.tiers import AddBuyTier, resolve_add_buy_tier
 from services.market_store import get_monthly_add_buy_spent, record_add_buy_spent
 
 
@@ -31,25 +32,31 @@ class MonthlyBudget:
     def can_spend(self, amount: float) -> bool:
         return amount > 0 and amount <= self.remaining()
 
-    def allocate_for_score(self, score: float) -> float:
-        """
-        종합 점수에 따라 이번 추가 매수 금액 산정.
+    def resolve_tier(self, score: float) -> AddBuyTier | None:
+        """점수 → ADD_BUY 등급."""
+        return resolve_add_buy_tier(score, self.settings)
 
-        단순 % 하락이 아니라 점수 구간별 월 예산 비율 사용.
+    def allocate_for_score(self, score: float, size_multiplier: float = 1.0) -> float:
+        """
+        종합 점수·월 잔여 기반 1회 추가 매수 금액.
+
+        산식: int(잔여 × REMAINING_PCT × 등급배율 × ATR배율), 절대상한·최소주문 적용.
         """
         remaining = self.remaining()
-        if remaining <= 0 or score < self.settings.add_buy_min_score:
+        tier = self.resolve_tier(score)
+        if tier is None or remaining <= 0:
             return 0.0
 
-        if score >= 9:
-            ratio = 1.0
-        elif score >= 7:
-            ratio = 0.5
-        else:
-            ratio = 0.25
-
-        amount = min(remaining, self.monthly_limit * ratio)
+        paced = (
+            remaining
+            * self.settings.add_buy_remaining_pct
+            * tier.size_multiplier
+            * max(0.0, size_multiplier)
+        )
+        amount = float(int(paced))
+        amount = min(amount, remaining)
         amount = min(amount, self.settings.add_buy_max_per_order_krw)
+
         if amount < self.settings.add_buy_min_order_krw:
             return 0.0
         return amount

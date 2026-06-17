@@ -9,6 +9,11 @@ from typing import Any
 from config import get_settings
 from core.state import PipelineState
 from core.strategy.budget import MonthlyBudget
+from core.strategy.report_narrative import (
+    build_decision_narrative,
+    build_execution_status_lines,
+    _is_cooldown_blocked,
+)
 from core.strategy.scoring import CompositeScorer
 from services.exchange_rate import collect_market_snapshot
 from services.market_store import (
@@ -93,30 +98,26 @@ class ReportWorker:
             return existing or {}
 
     def _resolve_analysis(self, market: dict) -> dict[str, Any]:
-        """리포트용 종합 분석 (DB score 없으면 실시간 재계산)."""
+        """리포트용 종합 분석 (technical 있으면 점수 재계산)."""
         score = market.get("score")
         technical = market.get("technical")
 
-        if score and technical:
-            return {"score": score, "technical": technical, "live_recomputed": False}
-
         settings = get_settings()
         try:
-            snap = collect_market_snapshot(settings.default_ticker).to_dict()
-            onchain = fetch_onchain_metrics().to_dict()
             if not technical:
                 technical = fetch_technical_snapshot(settings.default_ticker).to_dict()
+            snap = market if market.get("btc_krw") else collect_market_snapshot(settings.default_ticker).to_dict()
+            onchain = fetch_onchain_metrics().to_dict()
             metrics = {
-                "captured_at": snap["captured_at"],
-                "usd_krw": snap["usd_krw"],
-                "btc_krw": snap["btc_krw"],
-                "btc_usd_implied": snap["btc_usd_implied"],
-                "kimchi_premium_pct": snap.get("kimchi_premium_pct"),
+                "captured_at": snap.get("captured_at") or market.get("captured_at"),
+                "usd_krw": snap.get("usd_krw") or market.get("usd_krw"),
+                "btc_krw": snap.get("btc_krw") or market.get("btc_krw"),
+                "btc_usd_implied": snap.get("btc_usd_implied") or market.get("btc_usd_implied"),
+                "kimchi_premium_pct": snap.get("kimchi_premium_pct") or market.get("kimchi_premium_pct"),
                 "onchain": onchain,
                 "technical": technical,
             }
-            if not score:
-                score = CompositeScorer(settings).score(metrics).to_dict()
+            score = CompositeScorer(settings).score(metrics).to_dict()
             return {"score": score, "technical": technical, "live_recomputed": True}
         except Exception as exc:  # noqa: BLE001
             return {
@@ -143,13 +144,21 @@ class ReportWorker:
 
         lines.extend(
             [
-                f"  종합 점수       : {score.get('total_score', '-')} / {score.get('max_possible', 12)}",
-                f"  최소 기준       : {settings.add_buy_min_score} 점",
+                f"  종합 점수       : {score.get('total_score', '-')} / {score.get('max_possible', 24)}",
+                f"  최소 기준       : {score.get('effective_min_score', settings.add_buy_min_score)} 점",
                 f"  ADD_BUY 권장    : {'예' if score.get('recommend_add_buy') else '아니오'}",
                 f"  권장 추가매수   : {score.get('recommended_krw', 0):,.0f} KRW",
                 f"  신뢰도          : {score.get('confidence', 0):.2f}",
             ]
         )
+        if float(score.get("atr_size_multiplier") or 1) < 1.0:
+            lines.append(f"  ATR 금액배율    : {score.get('atr_size_multiplier'):.2f}x")
+        if score.get("add_buy_tier"):
+            mult = score.get("add_buy_tier_multiplier", 0)
+            lines.append(
+                f"  ADD_BUY 등급    : {score.get('add_buy_tier_label')} ({score.get('add_buy_tier')}) "
+                f"→ 배율 ×{mult:.1f}"
+            )
 
         block_reasons = score.get("block_reasons") or []
         if block_reasons:
@@ -172,6 +181,19 @@ class ReportWorker:
                 f"    7일 수익률    : {_fmt_num(technical.get('return_7d_pct'))}%",
                 f"    30일 수익률   : {_fmt_num(technical.get('return_30d_pct'))}%",
                 f"    200MA 이격    : {_fmt_num(technical.get('dist_ma200_pct'))}%",
+                f"    52주 Drawdown : {_fmt_num(technical.get('drawdown_52w_pct'))}%",
+                f"    ATH Drawdown  : {_fmt_num(technical.get('drawdown_ath_pct'))}%",
+                f"    ATR(14)       : {_fmt_num(technical.get('atr_14_pct'))}% (비율 {_fmt_num(technical.get('atr_ratio'), '.2f')}x)",
+                f"    거래량 비율   : {_fmt_num(technical.get('volume_ratio'), '.2f')}x",
+                f"    주봉 추세     : {technical.get('weekly_trend', '-')}"
+                f" (정렬 {technical.get('mtf_alignment_score', '-')})",
+                f"    구조 bias     : {technical.get('structure_bias', '-')}"
+                f" (지지 {_fmt_num(technical.get('dist_support_pct'))}%)",
+                f"    ADX(14)       : {_fmt_num(technical.get('adx_14'), '.1f')}",
+                f"    볼린저 %B     : {_fmt_num(technical.get('bb_pct_b'), '.2f')}",
+                f"    VWAP(20) 이격 : {_fmt_num(technical.get('dist_vwap_pct'))}%",
+                f"    변동성 레짐   : {technical.get('volatility_regime', '-')}",
+                f"    RSI 다이버전스: {'강세' if technical.get('rsi_bullish_divergence') else '-'}",
                 "",
                 "  [점수 요인]",
             ]
@@ -234,6 +256,21 @@ class ReportWorker:
         lines.append("")
         lines.extend(self._analysis_lines(analysis))
 
+        score = analysis.get("score") or {}
+        lines.extend(
+            build_execution_status_lines(score=score, decision=decision)
+        )
+
+        lines.extend(
+            build_decision_narrative(
+                score=analysis.get("score") or {},
+                technical=analysis.get("technical") or {},
+                decision=decision,
+                account=account,
+                trigger_reason=state.trigger_reason or "",
+            )
+        )
+
         lines.extend(
             [
                 "[계좌 현황]",
@@ -254,15 +291,32 @@ class ReportWorker:
                     f"{h.get('total', 0):.8f} (평단 {h.get('avg_buy_price', 0):,.0f})"
                 )
 
+        settings = get_settings()
+        cooldown_blocked = _is_cooldown_blocked(score, settings)
+        summary_action = (
+            "HOLD (쿨다운)"
+            if cooldown_blocked
+            else decision.get("action", "-")
+        )
+        summary_executed = (
+            "아니오 (쿨다운 대기)"
+            if cooldown_blocked
+            else ("예" if decision.get("executed") else "아니오")
+        )
+        summary_amount = (
+            float(score.get("recommended_krw") or 0)
+            if cooldown_blocked
+            else decision.get("buy_amount_krw", 0)
+        )
+
         lines.extend(
             [
                 "",
-                "[신호 / 매매 실행]",
+                "[신호 / 매매 실행 — 요약]",
                 f"  신호 ID         : {state.signal_id or '-'}",
-                f"  신호 사유       : {state.trigger_reason or decision.get('reason', '-')}",
-                f"  결정            : {decision.get('action', '-')}",
-                f"  추가매수 금액   : {decision.get('buy_amount_krw', 0):,.0f} KRW",
-                f"  판단 사유       : {decision.get('reason', '-')}",
+                f"  결정            : {summary_action}",
+                f"  추가매수 금액   : {summary_amount:,.0f} KRW",
+                f"  실주문 체결     : {summary_executed}",
                 f"  DRY_RUN         : {decision.get('dry_run', True)}",
                 "",
                 "=" * 50,

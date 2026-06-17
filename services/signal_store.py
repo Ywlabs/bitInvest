@@ -68,22 +68,50 @@ def has_pending_signal(trigger_type: str | None = None) -> bool:
 
 def has_recent_signal(trigger_type: str, cooldown_hours: float) -> bool:
     """쿨다운 기간 내 동일 유형 신호가 있었는지."""
+    return get_cooldown_status(trigger_type, cooldown_hours)["in_cooldown"]
+
+
+def get_cooldown_status(trigger_type: str, cooldown_hours: float) -> dict[str, Any]:
+    """쿨다운·직전 신호 상태 (리포트·분석용)."""
     init_db()
-    since = (
-        datetime.now(timezone.utc) - timedelta(hours=cooldown_hours)
-    ).astimezone().isoformat()
+    empty: dict[str, Any] = {
+        "in_cooldown": False,
+        "last_signal_id": None,
+        "last_signal_at": None,
+        "last_signal_status": None,
+        "next_available_at": None,
+        "remaining_hours": 0.0,
+    }
     with _connect() as conn:
         row = conn.execute(
             """
-            SELECT 1 FROM trading_signals
+            SELECT id, created_at, status, result_note FROM trading_signals
             WHERE trigger_type = ?
-              AND created_at >= ?
               AND status IN (?, ?, ?)
+            ORDER BY created_at DESC
             LIMIT 1
             """,
-            (trigger_type, since, SIGNAL_PENDING, SIGNAL_PROCESSING, SIGNAL_DONE),
+            (trigger_type, SIGNAL_PENDING, SIGNAL_PROCESSING, SIGNAL_DONE),
         ).fetchone()
-    return row is not None
+    if row is None:
+        return empty
+
+    created_at = datetime.fromisoformat(str(row["created_at"]))
+    now = datetime.now(timezone.utc).astimezone()
+    elapsed_hours = (now - created_at).total_seconds() / 3600.0
+    in_cooldown = elapsed_hours < cooldown_hours
+    remaining = max(0.0, cooldown_hours - elapsed_hours)
+    next_available = created_at + timedelta(hours=cooldown_hours)
+
+    return {
+        "in_cooldown": in_cooldown,
+        "last_signal_id": int(row["id"]),
+        "last_signal_at": str(row["created_at"]),
+        "last_signal_status": str(row["status"]),
+        "last_signal_note": str(row["result_note"] or ""),
+        "next_available_at": next_available.isoformat(),
+        "remaining_hours": remaining,
+    }
 
 
 def claim_next_pending_signal() -> dict[str, Any] | None:

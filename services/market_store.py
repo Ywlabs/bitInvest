@@ -93,9 +93,62 @@ def init_db() -> None:
                 note TEXT,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS job_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_name TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                duration_ms INTEGER,
+                exit_code INTEGER,
+                status TEXT NOT NULL,
+                summary TEXT NOT NULL DEFAULT '',
+                detail_json TEXT NOT NULL DEFAULT '{}',
+                error_text TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_job_runs_name_time
+                ON job_runs(job_name, started_at DESC);
             """
         )
         _migrate(conn)
+
+
+def _migrate_legacy_ops_db(conn: sqlite3.Connection) -> None:
+    """예전 ops.db 이력을 market.db job_runs 로 1회 이전."""
+    legacy_path = BASE_DIR / "data" / "ops.db"
+    if not legacy_path.exists():
+        return
+    try:
+        legacy = sqlite3.connect(legacy_path)
+        legacy.row_factory = sqlite3.Row
+        rows = legacy.execute("SELECT * FROM job_runs ORDER BY id").fetchall()
+        for row in rows:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO job_runs
+                (id, job_name, started_at, finished_at, duration_ms, exit_code,
+                 status, summary, detail_json, error_text)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row["id"],
+                    row["job_name"],
+                    row["started_at"],
+                    row["finished_at"],
+                    row["duration_ms"],
+                    row["exit_code"],
+                    row["status"],
+                    row["summary"],
+                    row["detail_json"],
+                    row["error_text"],
+                ),
+            )
+        legacy.close()
+        backup = legacy_path.with_suffix(".db.bak")
+        legacy_path.rename(backup)
+    except sqlite3.Error:
+        pass
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -103,6 +156,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = [r[1] for r in conn.execute("PRAGMA table_info(trade_decisions)").fetchall()]
     if "signal_id" not in cols:
         conn.execute("ALTER TABLE trade_decisions ADD COLUMN signal_id INTEGER")
+    _migrate_legacy_ops_db(conn)
 
 
 def save_market_snapshot(data: dict[str, Any]) -> int:
@@ -274,6 +328,28 @@ def record_add_buy_spent(month_key: str, amount_krw: float, note: str = "") -> N
             """,
             (month_key, amount_krw, note, created_at),
         )
+
+
+def clear_monthly_add_buy_ledger(month_key: str | None = None) -> int:
+    """
+    월 ADD_BUY 집행 이력 삭제 (예산 잔여 초기화).
+
+    Args:
+        month_key: '2026-06' 형식. None 이면 전체 월 삭제.
+
+    Returns:
+        삭제된 행 수
+    """
+    init_db()
+    with _connect() as conn:
+        if month_key:
+            cursor = conn.execute(
+                "DELETE FROM monthly_add_buy_ledger WHERE month_key = ?",
+                (month_key,),
+            )
+        else:
+            cursor = conn.execute("DELETE FROM monthly_add_buy_ledger")
+        return int(cursor.rowcount)
 
 
 def get_latest_trading_signal() -> dict[str, Any] | None:
