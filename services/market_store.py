@@ -362,9 +362,9 @@ def get_latest_trading_signal() -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def write_report_file(report_date: str, lines: list[str]) -> Path:
-    """리포트 텍스트 파일 저장."""
+def write_report_html(report_date: str, html_content: str) -> Path:
+    """리포트 HTML 파일 저장."""
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = REPORTS_DIR / f"report_{report_date}.txt"
-    path.write_text("\n".join(lines), encoding="utf-8")
+    path = REPORTS_DIR / f"report_{report_date}.html"
+    path.write_text(html_content, encoding="utf-8")
     return path

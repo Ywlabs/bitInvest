@@ -14,6 +14,7 @@ from services.market_store import (
     save_market_snapshot,
     save_metric,
 )
+from services.desktop_notify import notify_user
 from services.onchain_client import fetch_onchain_metrics
 from services.signal_store import create_signal, has_pending_signal, has_recent_signal
 from tools.indicators import IndicatorError, fetch_technical_snapshot
@@ -76,6 +77,15 @@ class AnalysisWorker:
             result.signal_created = True
             result.trigger_type = "ADD_BUY"
             result.trigger_reason = trigger.reason
+
+            score = (metrics.get("score") or {}).get("total_score")
+            score_txt = f" (종합 점수 {score:.1f}점)" if isinstance(score, (int, float)) else ""
+            notify_user(
+                "추가 매수 신호가 생겼어요",
+                f"시장 조건이 맞아 신호를 등록했습니다{score_txt}.\n"
+                "매매 배치가 곧 검토할 예정이에요.",
+                kind="signal",
+            )
 
         except (MarketDataError, IndicatorError) as exc:
             result.errors.append(f"[AnalysisWorker] {exc}")

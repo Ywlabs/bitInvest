@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from config import get_settings
 from core.state import PipelineState
 from core.strategy.budget import MonthlyBudget
+from services.desktop_notify import notify_user
 from services.market_store import get_market_snapshot, save_trade_decision
 from services.signal_store import (
     SIGNAL_DONE,
@@ -160,6 +161,29 @@ class TradingWorker:
 
         save_trade_decision(decision)
         state.trading_decision = decision
+
+        if action == "ADD_BUY" and buy_krw > 0:
+            if settings.dry_run:
+                notify_user(
+                    "추가 매수 조건 충족 (모의 실행)",
+                    f"약 {buy_krw:,.0f}원 규모로 매수할 만한 상황입니다.\n"
+                    "DRY_RUN 모드라 실제 주문은 넣지 않았어요.",
+                    kind="buy",
+                )
+            elif executed:
+                notify_user(
+                    "비트코인 추가 매수 주문을 넣었어요",
+                    f"약 {buy_krw:,.0f}원 시장가 매수를 접수했습니다.\n"
+                    "업비트 앱에서 체결 여부를 확인해 주세요.",
+                    kind="buy",
+                )
+            else:
+                notify_user(
+                    "추가 매수를 검토했어요",
+                    f"약 {buy_krw:,.0f}원 규모 매수 판단입니다.",
+                    kind="buy",
+                )
+
         return state
 
     def _decide_add_buy(

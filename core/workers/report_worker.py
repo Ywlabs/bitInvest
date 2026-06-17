@@ -8,12 +8,6 @@ from typing import Any
 
 from config import get_settings
 from core.state import PipelineState
-from core.strategy.budget import MonthlyBudget
-from core.strategy.report_narrative import (
-    build_decision_narrative,
-    build_execution_status_lines,
-    _is_cooldown_blocked,
-)
 from core.strategy.scoring import CompositeScorer
 from services.exchange_rate import collect_market_snapshot
 from services.market_store import (
@@ -21,8 +15,9 @@ from services.market_store import (
     get_latest_trade_decision,
     get_latest_trading_signal,
     save_daily_report,
-    write_report_file,
+    write_report_html,
 )
+from services.report_html import render_daily_report
 from services.onchain_client import fetch_onchain_metrics
 from tools.indicators import fetch_technical_snapshot
 from tools.upbit_client import UpbitClient, UpbitConnectionError
@@ -127,99 +122,6 @@ class ReportWorker:
                 "error": str(exc),
             }
 
-    def _analysis_lines(self, analysis: dict[str, Any]) -> list[str]:
-        """종합 분석 섹션 텍스트."""
-        settings = get_settings()
-        budget = MonthlyBudget(settings)
-        score = analysis.get("score") or {}
-        technical = analysis.get("technical") or {}
-
-        lines = [
-            "[종합 분석 (ADD_BUY)]",
-        ]
-        if analysis.get("live_recomputed"):
-            lines.append("  (리포트 생성 시점 실시간 재계산)")
-        if analysis.get("error"):
-            lines.append(f"  분석 오류      : {analysis['error']}")
-
-        lines.extend(
-            [
-                f"  종합 점수       : {score.get('total_score', '-')} / {score.get('max_possible', 24)}",
-                f"  최소 기준       : {score.get('effective_min_score', settings.add_buy_min_score)} 점",
-                f"  ADD_BUY 권장    : {'예' if score.get('recommend_add_buy') else '아니오'}",
-                f"  권장 추가매수   : {score.get('recommended_krw', 0):,.0f} KRW",
-                f"  신뢰도          : {score.get('confidence', 0):.2f}",
-            ]
-        )
-        if float(score.get("atr_size_multiplier") or 1) < 1.0:
-            lines.append(f"  ATR 금액배율    : {score.get('atr_size_multiplier'):.2f}x")
-        if score.get("add_buy_tier"):
-            mult = score.get("add_buy_tier_multiplier", 0)
-            lines.append(
-                f"  ADD_BUY 등급    : {score.get('add_buy_tier_label')} ({score.get('add_buy_tier')}) "
-                f"→ 배율 ×{mult:.1f}"
-            )
-
-        block_reasons = score.get("block_reasons") or []
-        if block_reasons:
-            lines.append(f"  보류 사유       : {', '.join(block_reasons)}")
-
-        def _fmt_num(val: Any, fmt: str = ".2f") -> str:
-            if val is None or val == "-":
-                return "-"
-            try:
-                return format(float(val), fmt)
-            except (TypeError, ValueError):
-                return str(val)
-
-        lines.extend(
-            [
-                "",
-                "  [기술적 지표]",
-                f"    RSI(14)       : {_fmt_num(technical.get('rsi_14'), '.1f')}",
-                f"    MACD hist     : {_fmt_num(technical.get('macd_hist'), ',.0f')}",
-                f"    7일 수익률    : {_fmt_num(technical.get('return_7d_pct'))}%",
-                f"    30일 수익률   : {_fmt_num(technical.get('return_30d_pct'))}%",
-                f"    200MA 이격    : {_fmt_num(technical.get('dist_ma200_pct'))}%",
-                f"    52주 Drawdown : {_fmt_num(technical.get('drawdown_52w_pct'))}%",
-                f"    ATH Drawdown  : {_fmt_num(technical.get('drawdown_ath_pct'))}%",
-                f"    ATR(14)       : {_fmt_num(technical.get('atr_14_pct'))}% (비율 {_fmt_num(technical.get('atr_ratio'), '.2f')}x)",
-                f"    거래량 비율   : {_fmt_num(technical.get('volume_ratio'), '.2f')}x",
-                f"    주봉 추세     : {technical.get('weekly_trend', '-')}"
-                f" (정렬 {technical.get('mtf_alignment_score', '-')})",
-                f"    구조 bias     : {technical.get('structure_bias', '-')}"
-                f" (지지 {_fmt_num(technical.get('dist_support_pct'))}%)",
-                f"    ADX(14)       : {_fmt_num(technical.get('adx_14'), '.1f')}",
-                f"    볼린저 %B     : {_fmt_num(technical.get('bb_pct_b'), '.2f')}",
-                f"    VWAP(20) 이격 : {_fmt_num(technical.get('dist_vwap_pct'))}%",
-                f"    변동성 레짐   : {technical.get('volatility_regime', '-')}",
-                f"    RSI 다이버전스: {'강세' if technical.get('rsi_bullish_divergence') else '-'}",
-                "",
-                "  [점수 요인]",
-            ]
-        )
-
-        breakdown = score.get("breakdown") or []
-        if breakdown:
-            for item in breakdown:
-                lines.append(
-                    f"    +{item.get('points', 0):.1f} {item.get('factor', '')}: {item.get('reason', '')}"
-                )
-        else:
-            lines.append("    (가점 요인 없음)")
-
-        lines.extend(
-            [
-                "",
-                "  [월 추가매수 예산]",
-                f"    월 한도        : {budget.monthly_limit:,.0f} KRW",
-                f"    이번 달 사용   : {budget.spent_this_month():,.0f} KRW",
-                f"    이번 달 잔여   : {budget.remaining():,.0f} KRW",
-                "",
-            ]
-        )
-        return lines
-
     def run(self, state: PipelineState) -> PipelineState:
         if not state.market_snapshot and not state.account_summary:
             loaded = self.build_state_from_db()
@@ -237,96 +139,23 @@ class ReportWorker:
         decision = state.trading_decision or {}
         account = state.account_summary or {}
         analysis = self._resolve_analysis(market)
-
-        lines = [
-            "=" * 50,
-            f"  일일 성과 보고서  {report_date}",
-            "=" * 50,
-            "",
-            "[시장 스냅샷]",
-            f"  수집 시각       : {market.get('captured_at', '-')}",
-            f"  USD/KRW         : {market.get('usd_krw', 0):,.2f}",
-            f"  BTC/KRW (업비트): {market.get('btc_krw', 0):,.0f}",
-            f"  BTC/USD (환산)  : {market.get('btc_usd_implied', 0):,.2f}",
-        ]
-        kimchi = market.get("kimchi_premium_pct")
-        if kimchi is not None:
-            lines.append(f"  김치 프리미엄   : {kimchi:+.2f}%")
-
-        lines.append("")
-        lines.extend(self._analysis_lines(analysis))
-
-        score = analysis.get("score") or {}
-        lines.extend(
-            build_execution_status_lines(score=score, decision=decision)
-        )
-
-        lines.extend(
-            build_decision_narrative(
-                score=analysis.get("score") or {},
-                technical=analysis.get("technical") or {},
-                decision=decision,
-                account=account,
-                trigger_reason=state.trigger_reason or "",
-            )
-        )
-
-        lines.extend(
-            [
-                "[계좌 현황]",
-                f"  원화 잔고       : {account.get('krw_balance', 0):,.0f} KRW",
-                f"  원화 잠금       : {account.get('krw_locked', 0):,.0f} KRW",
-                f"  총 평가액       : {account.get('total_eval_amount', 0):,.0f} KRW",
-                f"  코인 손익       : {account.get('total_pnl', 0):+,.0f} KRW "
-                f"({account.get('total_pnl_rate', 0):+.2f}%)",
-            ]
-        )
-
-        holdings = account.get("holdings") or []
-        if holdings:
-            lines.append("  보유 코인:")
-            for h in holdings:
-                lines.append(
-                    f"    - {h.get('currency', '?')}: "
-                    f"{h.get('total', 0):.8f} (평단 {h.get('avg_buy_price', 0):,.0f})"
-                )
-
         settings = get_settings()
-        cooldown_blocked = _is_cooldown_blocked(score, settings)
-        summary_action = (
-            "HOLD (쿨다운)"
-            if cooldown_blocked
-            else decision.get("action", "-")
-        )
-        summary_executed = (
-            "아니오 (쿨다운 대기)"
-            if cooldown_blocked
-            else ("예" if decision.get("executed") else "아니오")
-        )
-        summary_amount = (
-            float(score.get("recommended_krw") or 0)
-            if cooldown_blocked
-            else decision.get("buy_amount_krw", 0)
+
+        html_content = render_daily_report(
+            report_date=report_date,
+            created_at=now.isoformat(),
+            market=market,
+            analysis=analysis,
+            decision=decision,
+            account=account,
+            signal_id=state.signal_id,
+            signal_created=state.signal_created,
+            trigger_reason=state.trigger_reason or "",
+            errors=state.errors,
+            settings=settings,
         )
 
-        lines.extend(
-            [
-                "",
-                "[신호 / 매매 실행 — 요약]",
-                f"  신호 ID         : {state.signal_id or '-'}",
-                f"  결정            : {summary_action}",
-                f"  추가매수 금액   : {summary_amount:,.0f} KRW",
-                f"  실주문 체결     : {summary_executed}",
-                f"  DRY_RUN         : {decision.get('dry_run', True)}",
-                "",
-                "=" * 50,
-            ]
-        )
-
-        if state.errors:
-            lines.extend(["", "[오류]", *[f"  - {e}" for e in state.errors]])
-
-        file_path = write_report_file(report_date, lines)
+        file_path = write_report_html(report_date, html_content)
         content = {
             "created_at": now.isoformat(),
             "report_date": report_date,

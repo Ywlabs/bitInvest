@@ -133,6 +133,48 @@ class Settings(BaseSettings):
         description="거래량 동반 조정 판정 배율",
     )
 
+    # Windows 데스크톱 알림
+    notify_enabled: bool = Field(default=True, alias="NOTIFY_ENABLED")
+    notify_on_batch_analysis: bool = Field(
+        default=False,
+        alias="NOTIFY_ON_BATCH_ANALYSIS",
+        description="analysis 배치 완료·실패 알림 (기본 OFF)",
+    )
+    notify_on_batch_trading: bool = Field(
+        default=True,
+        alias="NOTIFY_ON_BATCH_TRADING",
+        description="trading 배치 완료·실패 알림",
+    )
+    notify_on_batch_report: bool = Field(
+        default=True,
+        alias="NOTIFY_ON_BATCH_REPORT",
+        description="report 배치 완료·실패 알림",
+    )
+    notify_on_signal: bool = Field(
+        default=False,
+        alias="NOTIFY_ON_SIGNAL",
+        description="ADD_BUY 신호 생성 시 알림 (배치와 별도)",
+    )
+    notify_on_buy: bool = Field(
+        default=False,
+        alias="NOTIFY_ON_BUY",
+        description="ADD_BUY 매수 판단·체결 시 알림 (배치와 별도)",
+    )
+    notify_on_error: bool = Field(
+        default=True,
+        alias="NOTIFY_ON_ERROR",
+        description="배치 실패 알림 (해당 job 배치 알림이 켜져 있을 때만)",
+    )
+
+    def is_batch_notify_enabled(self, job_name: str) -> bool:
+        """배치별 알림 ON/OFF (analysis / trading / report)."""
+        flags = {
+            "analysis": self.notify_on_batch_analysis,
+            "trading": self.notify_on_batch_trading,
+            "report": self.notify_on_batch_report,
+        }
+        return flags.get(job_name, False)
+
     @field_validator("upbit_access_key", "upbit_secret_key")
     @classmethod
     def validate_api_keys(cls, value: str) -> str:
