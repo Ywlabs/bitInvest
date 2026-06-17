@@ -53,6 +53,137 @@ def _lines_to_html_block(lines: list[str]) -> str:
     return "\n".join(items)
 
 
+def _render_daily_summary_html(summary: dict[str, Any]) -> str:
+    """일자별 Summary HTML 블록."""
+    m = summary.get("market") or {}
+    jobs = summary.get("jobs") or {}
+    sig = summary.get("signals") or {}
+    tr = summary.get("trades") or {}
+    ledger = summary.get("ledger") or {}
+    timeline = summary.get("timeline") or []
+
+    chg = m.get("btc_change_pct")
+    chg_txt = f"{chg:+.2f}%" if isinstance(chg, (int, float)) else "-"
+    chg_class = "ok" if isinstance(chg, (int, float)) and chg >= 0 else "warn"
+
+    job_parts = []
+    for name, stats in (jobs.get("by_job") or {}).items():
+        label = {"analysis": "분석", "trading": "매매", "report": "리포트"}.get(name, name)
+        ok = stats.get("success", 0)
+        fail = stats.get("failed", 0)
+        job_parts.append(f"{label} {ok + fail}회 (성공 {ok})")
+    jobs_txt = " · ".join(job_parts) if job_parts else "실행 없음"
+
+    timeline_rows = ""
+    for ev in timeline:
+        kind = ev.get("kind", "")
+        kind_label = {"job": "배치", "signal": "신호", "trade": "판단"}.get(kind, kind)
+        timeline_rows += (
+            "<tr>"
+            f"<td class='num'>{_esc(ev.get('time'))}</td>"
+            f"<td><span class='tag-sm'>{_esc(kind_label)}</span></td>"
+            f"<td>{_esc(ev.get('text'))}</td>"
+            "</tr>"
+        )
+    if not timeline_rows:
+        timeline_rows = "<tr><td colspan='3' class='muted'>이 날짜 기록된 활동이 없습니다.</td></tr>"
+
+    timeline_count = len(timeline)
+
+    signal_rows = ""
+    for s in sig.get("items") or []:
+        signal_rows += (
+            "<tr>"
+            f"<td class='num'>#{s.get('id')}</td>"
+            f"<td class='num'>{_esc(_short_time_h(s.get('created_at')))}</td>"
+            f"<td>{_esc(s.get('status'))}</td>"
+            f"<td class='num'>{_fmt_num(s.get('total_score'), '.1f')}</td>"
+            f"<td class='num'>{_fmt_krw(s.get('recommended_krw'))}</td>"
+            "</tr>"
+        )
+    if not signal_rows:
+        signal_rows = "<tr><td colspan='5' class='muted'>신호 없음</td></tr>"
+
+    trade_rows = ""
+    for t in tr.get("items") or []:
+        trade_rows += (
+            "<tr>"
+            f"<td class='num'>#{t.get('id')}</td>"
+            f"<td class='num'>{_esc(_short_time_h(t.get('decided_at')))}</td>"
+            f"<td><b>{_esc(t.get('action'))}</b></td>"
+            f"<td class='num'>{_fmt_krw(t.get('buy_amount_krw'))}</td>"
+            f"<td>{'체결' if t.get('executed') else ('DRY' if t.get('dry_run') else '-')}</td>"
+            "</tr>"
+        )
+    if not trade_rows:
+        trade_rows = "<tr><td colspan='5' class='muted'>매매 판단 없음</td></tr>"
+
+    return f"""
+    <section class="card card-summary">
+      <h2>일일 Summary — {summary.get('report_date', '')}</h2>
+      <p class="muted">이 날짜에 DB에 쌓인 배치·신호·매매·시장 스냅샷을 집계한 기록입니다.</p>
+      <div class="kpis summary-kpis">
+        <div class="kpi">
+          <div class="label">BTC 시가 → 종가</div>
+          <div class="value">{_fmt_krw(m.get('btc_krw_open'))} → {_fmt_krw(m.get('btc_krw_close'))}원</div>
+          <div class="sub value-{chg_class}">{chg_txt}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">일중 고/저</div>
+          <div class="value">{_fmt_krw(m.get('btc_krw_high'))} / {_fmt_krw(m.get('btc_krw_low'))}</div>
+          <div class="sub">스냅샷 {m.get('snapshot_count', 0)}회</div>
+        </div>
+        <div class="kpi">
+          <div class="label">ADD_BUY 신호</div>
+          <div class="value">{sig.get('total', 0)}건</div>
+          <div class="sub">완료 {sig.get('by_status', {}).get('done', 0)} · 보류 {sig.get('by_status', {}).get('rejected', 0)}</div>
+        </div>
+        <div class="kpi">
+          <div class="label">추가매수 합계</div>
+          <div class="value">{_fmt_krw(tr.get('add_buy_total_krw'))}원</div>
+          <div class="sub">체결 {tr.get('executed_count', 0)}건 · 장부 {_fmt_krw(ledger.get('spent_krw'))}원</div>
+        </div>
+      </div>
+      <p class="jobs-line"><b>배치 실행</b> — {jobs_txt}</p>
+      <details class="collapse-panel">
+        <summary>
+          <span class="collapse-title">오늘의 타임라인</span>
+          <span class="collapse-meta">{timeline_count}건 · 클릭하여 펼치기</span>
+        </summary>
+        <div class="collapse-body">
+          <table class="compact">
+            <thead><tr><th>시각</th><th>구분</th><th>내용</th></tr></thead>
+            <tbody>{timeline_rows}</tbody>
+          </table>
+        </div>
+      </details>
+      <div class="grid-2" style="margin-top:1rem">
+        <div>
+          <h3 class="sub-title">신호 목록</h3>
+          <table class="compact">
+            <thead><tr><th>ID</th><th>시각</th><th>상태</th><th>점수</th><th>권장액</th></tr></thead>
+            <tbody>{signal_rows}</tbody>
+          </table>
+        </div>
+        <div>
+          <h3 class="sub-title">매매 판단 목록</h3>
+          <table class="compact">
+            <thead><tr><th>ID</th><th>시각</th><th>액션</th><th>금액</th><th>체결</th></tr></thead>
+            <tbody>{trade_rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </section>"""
+
+
+def _short_time_h(iso: str | None) -> str:
+    if not iso:
+        return "-"
+    if "T" in iso:
+        return iso.split("T", 1)[1][:8]
+    return str(iso)[-8:]
+
+
 def render_daily_report(
     *,
     report_date: str,
@@ -65,10 +196,13 @@ def render_daily_report(
     signal_created: bool,
     trigger_reason: str,
     errors: list[str],
+    daily_summary: dict[str, Any] | None = None,
     settings: Settings | None = None,
 ) -> str:
     """대시보드 형태 HTML 문자열 생성."""
     settings = settings or get_settings()
+    daily_summary = daily_summary or {}
+    summary_html = _render_daily_summary_html(daily_summary) if daily_summary else ""
     budget = MonthlyBudget(settings)
     score = analysis.get("score") or {}
     technical = analysis.get("technical") or {}
@@ -284,6 +418,52 @@ def render_daily_report(
     th {{ color: var(--muted); font-weight: 500; }}
     td.num {{ text-align: right; font-variant-numeric: tabular-nums; }}
     .narrative {{ font-size: 0.85rem; }}
+    .card-summary {{ border-color: var(--accent); }}
+    .summary-kpis .sub {{ font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }}
+    .value-ok {{ color: var(--ok); }}
+    .value-warn {{ color: var(--warn); }}
+    .jobs-line {{ font-size: 0.875rem; margin: 0.75rem 0; }}
+    .tag-sm {{
+      font-size: 0.7rem;
+      background: #243044;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      color: var(--muted);
+    }}
+    table.compact th, table.compact td {{ padding: 0.35rem 0.5rem; font-size: 0.8rem; }}
+    details.collapse-panel {{
+      margin: 0.75rem 0 1rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #1e2838;
+    }}
+    details.collapse-panel summary {{
+      cursor: pointer;
+      padding: 0.7rem 1rem;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      user-select: none;
+    }}
+    details.collapse-panel summary::-webkit-details-marker {{ display: none; }}
+    details.collapse-panel summary::before {{
+      content: "▸";
+      color: var(--accent);
+      margin-right: 0.35rem;
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+    }}
+    details.collapse-panel[open] summary::before {{
+      transform: rotate(90deg);
+    }}
+    details.collapse-panel[open] summary .collapse-meta::after {{
+      content: " (접기)";
+    }}
+    .collapse-title {{ font-weight: 600; font-size: 0.9rem; }}
+    .collapse-meta {{ font-size: 0.75rem; color: var(--muted); }}
+    .collapse-body {{ padding: 0 1rem 1rem; }}
     footer {{ margin-top: 2rem; text-align: center; color: var(--muted); font-size: 0.75rem; }}
   </style>
 </head>
@@ -291,7 +471,7 @@ def render_daily_report(
   <div class="wrap">
     <header>
       <div>
-        <h1>bitInvest 일일 대시보드</h1>
+        <h1>bitInvest 일일 리포트</h1>
         <p class="meta">{report_date} · 생성 {generated}{live_tag}</p>
       </div>
       <div>
@@ -299,6 +479,13 @@ def render_daily_report(
         {"<span class='badge badge-warn'>DRY_RUN</span>" if dry_run else ""}
       </div>
     </header>
+
+    {summary_html}
+
+    <section class="card">
+      <h2>마감 시점 현황</h2>
+      <p class="muted">리포트 생성 시점의 최신 스냅샷·점수·계좌입니다.</p>
+    </section>
 
     <div class="kpis">
       <div class="kpi">

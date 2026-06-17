@@ -17,6 +17,7 @@ from services.market_store import (
     save_daily_report,
     write_report_html,
 )
+from services.daily_summary import build_daily_summary
 from services.report_html import render_daily_report
 from services.onchain_client import fetch_onchain_metrics
 from tools.indicators import fetch_technical_snapshot
@@ -140,6 +141,7 @@ class ReportWorker:
         account = state.account_summary or {}
         analysis = self._resolve_analysis(market)
         settings = get_settings()
+        daily_summary = build_daily_summary(report_date)
 
         html_content = render_daily_report(
             report_date=report_date,
@@ -152,6 +154,7 @@ class ReportWorker:
             signal_created=state.signal_created,
             trigger_reason=state.trigger_reason or "",
             errors=state.errors,
+            daily_summary=daily_summary,
             settings=settings,
         )
 
@@ -166,6 +169,7 @@ class ReportWorker:
             "trading_decision": decision,
             "account_summary": account,
             "errors": state.errors,
+            "daily_summary": daily_summary,
         }
         report_id = save_daily_report(report_date, content, str(file_path))
         state.report_id = report_id

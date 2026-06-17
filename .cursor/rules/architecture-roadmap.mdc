@@ -25,7 +25,7 @@ analyze → decide → risk_check → execute → log → [reflect_and_optimize]
 ```
 AnalysisWorker --(조건 충족)--> trading_signals (SQLite)
 TradingWorker  --(pending만)--> trade_decisions
-ReportWorker   --(일 1회)-----> daily_reports
+ReportWorker   --(일 1회)-----> daily_reports + report_YYYY-MM-DD.html
 ```
 
 | Worker | 실행 스크립트 |
@@ -41,12 +41,15 @@ ReportWorker   --(일 1회)-----> daily_reports
 | 항목 | 현재 | 다음 단계 |
 |------|------|-----------|
 | 계좌 조회 | `UpbitClient` ✅ | — |
-| Agent Worker 3종 | ✅ 동작 (DRY_RUN) | 실주문·알림 |
-| OHLCV·지표 | `tools/indicators.py` ✅ | 매크로(VIX·유가 등) |
-| 종합 점수·ADD_BUY | `scoring.py` + 신호 큐 ✅ | 가중치 튜닝 |
+| Agent Worker 3종 | ✅ 운영 (스케줄러 1h/15m/23:00) | — |
+| 실주문 | `buy_market_krw` ✅ (`DRY_RUN` 기본) | 리스크 매니저 연동 |
+| OHLCV·지표 | `tools/indicators/` ✅ | 매크로(VIX·유가 등) |
+| 종합 점수·ADD_BUY | 팩터 v2 + 신호 큐 ✅ | 가중치 튜닝 |
+| HTML 리포트·일일 Summary | ✅ | 백테스트 리포트 |
+| Windows 알림 | ✅ `desktop_notify` | — |
 | 리스크 | 미구현 | `services/risk_manager.py` |
 | LangGraph | 미구현 | `core/graph.py` |
-| 자동화 | 로컬 1회 스크립트 | 작업 스케줄러 (GitHub Actions는 보류) |
+| 자동화 | 로컬 작업 스케줄러 ✅ | GitHub Actions 보류 |
 
 ## 구현 순서 준수
 

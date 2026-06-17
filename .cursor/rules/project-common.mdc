@@ -28,19 +28,23 @@ bitInvest/
 │   ├── exchange_rate.py
 │   ├── market_store.py
 │   ├── signal_store.py    # 신호 큐 (SQLite)
+│   ├── daily_summary.py   # 일자별 집계
+│   ├── report_html.py     # HTML 리포트
+│   ├── desktop_notify.py  # Windows 토스트
+│   ├── job_logger.py      # 배치 이력 + 알림
 │   └── onchain_client.py  # 스텁
 ├── scripts/
 │   ├── run_analysis_watch.py
 │   ├── run_trading_consumer.py
 │   ├── run_report.py
 │   ├── show_score.py
-│   └── batch/             # Windows .bat
-├── logs/                  # 배치 로그 (Git 제외)
+│   ├── show_job_log.py
+│   └── batch/             # Windows 스케줄러 (register_tasks.ps1)
 ├── tools/
 │   ├── upbit_client.py
 │   └── indicators/        # TA 엔진 v2 (ta_math, pipeline, …)
 ├── data/                  # market.db (Git 제외)
-├── reports/               # 일일 리포트 (Git 제외)
+├── reports/               # 일일 HTML 리포트 (Git 제외)
 └── MetaData/
 ```
 
@@ -48,7 +52,7 @@ bitInvest/
 
 - `services/risk_manager.py` — ATR SL/TP, Kill-switch
 - `core/graph.py` — LangGraph
-- 실주문 API (`UpbitClient.place_order`)
+- 실주문 API (`UpbitClient.buy_market_krw`) — ✅ (`DRY_RUN` 기본)
 - 온체인·매크로 API 실구현, 백테스트
 
 ## 당분간 하지 않음

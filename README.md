@@ -15,7 +15,9 @@
 - **종합 점수(CompositeScorer)**: 팩터 합성 — MTF, 모멘텀, 구조, Drawdown, 거래량, 매크로
 - **TA 엔진 v2**: Wilder RSI/ATR, ADX, 볼린저, VWAP, OBV, 다이버전스, 시장 구조
 - **월간 예산 한도**: `MONTHLY_ADD_BUY_BUDGET_KRW`
-- **DRY_RUN 기본**: 실주문 없이 판단·기록만 수행
+- **DRY_RUN 기본**: 실주문 없이 판단·기록만 수행 (`DRY_RUN=false` 시 시장가 매수)
+- **HTML 일일 리포트**: 당일 Summary 집계 + 마감 시점 대시보드
+- **Windows 토스트 알림**: 배치·리포트 완료 알림 (배치별 ON/OFF)
 
 ---
 
@@ -26,14 +28,14 @@ AnalysisWorker  →  trading_signals (pending)  →  TradingWorker  →  trade_d
        ↓                                                    ↓
   market.db (스냅샷·지표)                          monthly_add_buy_ledger
        ↓
- ReportWorker  →  reports/report_YYYY-MM-DD.txt
+ ReportWorker  →  reports/report_YYYY-MM-DD.html
 ```
 
 | Worker | 역할 |
 |--------|------|
 | **Analysis** | 시세·지표 수집, 종합 점수 계산, ADD_BUY 신호 생성 |
 | **Trading** | `pending` 신호 소비, 예산·점수 검증 후 매수 판단 |
-| **Report** | 일일 리포트 생성 (DB + 텍스트 파일) |
+| **Report** | 일일 Summary 집계 + HTML 대시보드 (`daily_reports` JSON 저장) |
 
 각 스크립트는 **1회 실행 후 종료**됩니다. 주기 감시가 필요하면 작업 스케줄러 등에서 반복 호출하세요.
 
@@ -50,7 +52,11 @@ bitInvest/
 │   ├── strategy/           # 종합 점수, 월 예산
 │   ├── triggers/           # ADD_BUY 트리거 엔진
 │   └── workers/            # Analysis / Trading / Report
-├── services/               # SQLite, 환율, 신호 큐
+├── services/               # SQLite, 환율, 신호 큐, 리포트·알림
+│   ├── daily_summary.py    # 일자별 DB 집계
+│   ├── report_html.py      # HTML 대시보드 렌더
+│   ├── desktop_notify.py   # Windows 토스트
+│   └── job_logger.py       # job_runs + 알림 연동
 ├── tools/
 │   ├── upbit_client.py
 │   └── indicators/         # TA 엔진 (ta_math, structure, mtf, pipeline)
@@ -102,8 +108,14 @@ copy .env.example .env
 | `SCORE_WEEKLY_BEAR_BLOCK_ENABLED` | 주봉 약세 시 차단 | `true` |
 | `ATR_HIGH_RATIO` | 고변동 ATR 비율 임계 | `1.5` |
 | `ATR_HIGH_SIZE_MULTIPLIER` | 고변동 시 매수 금액 배율 | `0.5` |
+| `NOTIFY_ENABLED` | Windows 알림 전체 | `true` |
+| `NOTIFY_ON_BATCH_ANALYSIS` | Analysis 배치 알림 | `false` |
+| `NOTIFY_ON_BATCH_TRADING` | Trading 배치 알림 | `true` |
+| `NOTIFY_ON_BATCH_REPORT` | Report 완료 알림 (HTML 링크) | `true` |
 
 전체 목록은 `.env.example`을 참고하세요.
+
+운영·스케줄·리포트 상세: [`MetaData/Phase1-구현및운영.md`](MetaData/Phase1-구현및운영.md)
 
 ---
 
@@ -150,8 +162,11 @@ python scripts/run_analysis_watch.py
 # Trading: pending 신호 1건 처리
 python scripts/run_trading_consumer.py
 
-# Report: 일일 리포트 생성
+# Report: 일일 HTML 리포트 (Summary + 마감 시점 현황)
 python scripts/run_report.py
+
+# 알림 테스트 (Windows)
+python scripts/test_notify.py
 
 # 통합 테스트 (watch + consumer + report)
 python scripts/run_pipeline.py
@@ -203,6 +218,18 @@ python scripts/show_job_log.py --job trading --limit 20
 CLI: `python scripts/show_job_log.py`
 
 DB Browser for SQLite 등으로 열어 조회할 수 있습니다.
+
+### 일일 HTML 리포트
+
+경로: `reports/report_YYYY-MM-DD.html`
+
+| 섹션 | 내용 |
+|------|------|
+| **일일 Summary** | 당일 배치·BTC 시고/종가·신호·매매·타임라인 집계 |
+| **마감 시점 현황** | 생성 시점 점수, 매매 실행 가능 여부, 판단 근거 |
+| **타임라인** | 시간순 이벤트 (`<details>` 접기/펼치기) |
+
+Report 배치 완료 시 토스트 알림 클릭으로 브라우저에서 열 수 있습니다.
 
 ---
 
